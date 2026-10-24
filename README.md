@@ -9,12 +9,22 @@ PS2 の EyeToy（USB カメラ）を、Mac で普通の Web カメラとして�
 ## 必要なもの
 
 - Mac（Apple Silicon、macOS 13 以降。macOS 27 で確認）
-- Xcode と [XcodeGen](https://github.com/yonaskolb/XcodeGen)（`brew install xcodegen`）
-- Apple Developer アカウント（System Extension の署名に必要）
+- ソースからビルドする場合: Xcode と [XcodeGen](https://github.com/yonaskolb/XcodeGen)（`brew install xcodegen`）
+- ソースからビルドする場合: Apple Developer アカウント（System Extension の署名に必要）
 
-## ビルドとインストール
+## インストール（ダウンロード版）
 
-配布用のビルド済みアプリはありません。自分の Apple Developer アカウントで署名してビルドしてください。
+1. [Releases](https://github.com/tanpang-dev/eyetoy-mac/releases/latest) から `EyeToyCam-x.y.z.zip` をダウンロードして開きます。
+2. 出てきた `EyeToyCam.app` を「アプリケーション」フォルダに移します。
+3. `EyeToyCam.app` をダブルクリックします。
+4. 案内が出たら、システム設定 → 一般 → ログイン項目と機能拡張 → カメラ拡張機能 で「EyeToy」をオンにします。
+5. EyeToy を挿して、カメラアプリで「EyeToy」を選べば映ります。
+
+アプリは Apple の公証（notarization）済みです。外すときは、ターミナルで `/Applications/EyeToyCam.app/Contents/MacOS/EyeToyCam deactivate` を実行します。新しい版に入れ替えたときは、Mac を再起動すると切り替わります。
+
+## ビルドとインストール（ソースから）
+
+自分で手を入れたいときは、自分の Apple Developer アカウントで署名してビルドしてください。
 
 ### 1. 準備
 
