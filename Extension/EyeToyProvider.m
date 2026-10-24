@@ -7,6 +7,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ImageIO/ImageIO.h>
+#import <Accelerate/Accelerate.h>
 #import <IOKit/audio/IOAudioTypes.h>
 #import "eyetoy_usb.h"
 
@@ -21,6 +22,9 @@ static const EyeToyMode kModes[] = {
 #define kModeCount (sizeof kModes / sizeof kModes[0])
 #define kSensorFps 30  // register setting for the fastest sensor timing (see ov519_cam.c)
 #define kPowerLineFreq 0
+// Tone curve applied after decoding: >1 darkens midtones, keeps black and white.
+// Done here because the sensor's brightness registers get undone by its auto exposure.
+#define kGamma 1.2
 
 @class EyeToyStreamSource;
 
@@ -33,6 +37,7 @@ static const EyeToyMode kModes[] = {
 	CMFormatDescriptionRef _videoDescriptions[kModeCount];
 	CVPixelBufferPoolRef _bufferPools[kModeCount];
 	NSDictionary *_bufferAuxAttributes;
+	Pixel_8 _toneCurve[256];
 }
 
 - (instancetype)initWithLocalizedName:(NSString *)localizedName;
@@ -73,6 +78,9 @@ static const EyeToyMode kModes[] = {
 		NSUUID *deviceID = [[NSUUID alloc] initWithUUIDString:@"FBA32132-3540-429A-AC90-2051D073D819"];
 		_device = [[CMIOExtensionDevice alloc] initWithLocalizedName:localizedName deviceID:deviceID legacyDeviceID:nil source:self];
 		_bufferAuxAttributes = @{(id)kCVPixelBufferPoolAllocationThresholdKey : @(5)};
+		for (int i = 0; i < 256; i++) {
+			_toneCurve[i] = (Pixel_8)lround(255.0 * pow(i / 255.0, kGamma));
+		}
 
 		NSMutableArray<CMIOExtensionStreamFormat *> *formats = [NSMutableArray array];
 		for (NSUInteger i = 0; i < kModeCount; i++) {
@@ -155,6 +163,9 @@ static const EyeToyMode kModes[] = {
 	CGContextRelease(ctx);
 	CGColorSpaceRelease(cs);
 	CGImageRelease(image);
+	// BGRA in memory: bytes 0-2 are B, G, R (curve), byte 3 is alpha (NULL = untouched)
+	vImage_Buffer buf = {CVPixelBufferGetBaseAddress(pixelBuffer), m.height, m.width, CVPixelBufferGetBytesPerRow(pixelBuffer)};
+	vImageTableLookUp_ARGB8888(&buf, &buf, _toneCurve, _toneCurve, _toneCurve, NULL, kvImageNoFlags);
 	CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
 
 	CMSampleBufferRef sbuf = NULL;
