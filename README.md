@@ -14,17 +14,75 @@ PS2 の EyeToy（USB カメラ）を、Mac で普通の Web カメラとして�
 
 ## ビルドとインストール
 
+配布用のビルド済みアプリはありません。自分の Apple Developer アカウントで署名してビルドしてください。
+
+### 1. 準備
+
+1. Xcode を App Store から入れて一度起動し、Xcode → Settings → Accounts で Apple ID（Developer アカウント）にサインインします。
+2. XcodeGen を入れます。
+
+   ```sh
+   brew install xcodegen
+   ```
+
+3. 自分のチーム ID（英数字 10 文字）を調べます。[developer.apple.com/account](https://developer.apple.com/account) の「メンバーシップの詳細」に載っています。次のコマンドで出てくる括弧内の値でもかまいません。
+
+   ```sh
+   security find-identity -v -p codesigning
+   ```
+
+### 2. ビルドしてインストール
+
 ```sh
-DEVELOPMENT_TEAM=<あなたのチームID> xcodegen generate
+git clone https://github.com/tanpang-dev/eyetoy-mac.git
+cd eyetoy-mac
+export DEVELOPMENT_TEAM=XXXXXXXXXX   # 自分のチーム ID に置き換える
+
+xcodegen generate
 xcodebuild -project EyeToyCam.xcodeproj -scheme EyeToyCam -configuration Debug \
   -derivedDataPath build -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
 ditto build/Build/Products/Debug/EyeToyCam.app /Applications/EyeToyCam.app
 /Applications/EyeToyCam.app/Contents/MacOS/EyeToyCam activate
 ```
 
-システム設定 → 一般 → ログイン項目と機能拡張 → カメラ拡張機能 で「EyeToy」をオンにします。外すときは `EyeToyCam deactivate` です。
+`-allowProvisioningDeviceRegistration` は、使っている Mac を Developer アカウントに自動で登録します（開発用の署名で拡張機能を動かすのに必要です）。
 
-版を上げて入れ替えた場合は、Mac を再起動するまで新しい版が起動しません（古い版が「再起動時にアンインストール」待ちで残るため）。
+### 3. 許可する
+
+システム設定 → 一般 → ログイン項目と機能拡張 → カメラ拡張機能 で「EyeToy」をオンにします。EyeToy を挿して、カメラアプリで「EyeToy」を選べば映ります。
+
+- 外すとき: `/Applications/EyeToyCam.app/Contents/MacOS/EyeToyCam deactivate`
+- 版を上げて入れ替えた場合は、Mac を再起動するまで新しい版が起動しません（古い版が「再起動時にアンインストール」待ちで残るため）。
+
+### よくあるエラー
+
+| エラー | 対処 |
+|---|---|
+| `PLA Update available` | developer.apple.com にサインインして、新しい規約に同意する |
+| `isn't registered in your developer account` | `-allowProvisioningDeviceRegistration` を付けてビルドし直す |
+| `No Account for Team` | Xcode の Settings → Accounts でサインインし直す。`DEVELOPMENT_TEAM` の値も確認する |
+| `does not appear to belong to any extension categories` | `xcodegen generate` からやり直す（Info.plist が古い） |
+
+### AI に頼む場合
+
+コマンドに慣れていなければ、Claude Code や Codex などのターミナルで動く AI に、次の文をそのまま貼り付けて頼めます。`<チームID>` が分からなければ空のままで大丈夫です（AI が調べ方を案内します）。
+
+```text
+https://github.com/tanpang-dev/eyetoy-mac をビルドして、この Mac にインストールしてください。
+PS2 の EyeToy を Mac の Web カメラとして使うための Camera Extension です。
+
+私の Apple Developer のチーム ID: <チームID>
+
+進め方:
+1. README.md の「ビルドとインストール」に従ってください。
+2. 足りないもの（Xcode のサインイン、XcodeGen など）があれば、入れ方を教えてから進めてください。
+3. チーム ID が空なら、`security find-identity -v -p codesigning` などで候補を調べて、どれを使うか私に確認してください。
+4. Mac を Developer アカウントに登録する操作、/Applications へのコピー、拡張機能の有効化は、それぞれ実行前に私に確認してください。
+5. 有効化したら、システム設定で私が許可する場所を案内してください。
+6. エラーが出たら README の「よくあるエラー」を見て、原因と対処を説明してください。
+
+注意: EyeToy との通信に libusb は使わないでください（macOS でカーネルパニックを起こします）。
+```
 
 ## 形式の選び方
 
