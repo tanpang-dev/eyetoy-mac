@@ -1,6 +1,6 @@
 # EyeToy Cam for Mac
 
-PS2 の EyeToy（USB カメラ）を、Mac で普通の Web カメラとして使えるようにする Camera Extension です。FaceTime・Photo Booth・QuickTime・OBS などで「EyeToy」を選ぶと映ります。
+PS2 の EyeToy（USB カメラ）を、Mac で普通の Web カメラとして使えるようにする拡張機能です。
 
 - 640×480・20fps（既定）と、PS2 と同じ 320×240・60fps の 2 つの形式
 - マイクは macOS 標準のドライバでそのまま使えます（入力に「Logitech EyeToy USB Camera」を選ぶ）
@@ -59,12 +59,6 @@ clang -fobjc-arc -framework Foundation -framework IOUSBHost -framework IOKit \
 - 320×240 で 60fps を出すには、センサーをインターレース（`0x28` bit5 = 0）にします。
 - 画質が粗く見えるときは、レンズ周りのリングでピントを合わせ、部屋を明るくしてください。
 
-## 参考にしたもの
-
-- Linux gspca `ov519` ドライバ（初期化手順とレジスタ値）
-- [macam](https://github.com/smokris/macam64)（旧 Mac 用ドライバ。OV7648 のレジスタ名）
-- [PCSX2](https://github.com/PCSX2/pcsx2) の EyeToy エミュレーション（電源投入時のレジスタ値）
-- OmniVision OV7640/OV7141 データシート
 
 ## ライセンス
 
