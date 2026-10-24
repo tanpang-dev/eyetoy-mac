@@ -1,0 +1,62 @@
+name: EyeToyCam
+options:
+  bundleIdPrefix: dev.tanpang
+  deploymentTarget:
+    macOS: "13.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM} # your Apple team ID, from the environment
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    CLANG_ENABLE_OBJC_ARC: YES
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: 5
+targets:
+  EyeToyCam:
+    type: application
+    platform: macOS
+    sources: [App]
+    dependencies:
+      - target: Extension
+        embed: true
+        codeSign: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tanpang.EyeToyCam
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: YES
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.developer.system-extension.install: true
+  Extension:
+    type: system-extension
+    platform: macOS
+    sources:
+      - Extension
+      - ov519_cam.c
+      - eyetoy_usb.m
+    settings:
+      base:
+        PRODUCT_NAME: dev.tanpang.EyeToyCam.Extension
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tanpang.EyeToyCam.Extension
+        HEADER_SEARCH_PATHS: $(SRCROOT)
+    info:
+      path: Extension/Info.plist
+      properties:
+        CFBundlePackageType: $(PRODUCT_BUNDLE_PACKAGE_TYPE)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDisplayName: EyeToy
+        NSSystemExtensionUsageDescription: Makes the PS2 EyeToy usable as a webcam.
+        CMIOExtension:
+          CMIOExtensionMachServiceName: $(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)
+    entitlements:
+      path: Extension/Extension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - $(TeamIdentifierPrefix)dev.tanpang.EyeToyCam
+        com.apple.security.device.usb: true
+        com.apple.security.temporary-exception.iokit-user-client-class:
+          - AppleUSBHostFrameworkInterfaceClient
