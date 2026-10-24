@@ -1,6 +1,6 @@
 // EyeToy capture CLI (debugging; the camera extension uses the same eyetoy_usb.m).
 //
-//   eyetoy_host [frames] [freq 0/1=50Hz/2=60Hz] [fps] [qvga 0/1]   -> frame_NN.jpg, log in eyetoy.log
+//   eyetoy_host [frames] [freq 0/1=50Hz/2=60Hz] [fps]   -> frame_NN.jpg, log in eyetoy.log
 #import <Foundation/Foundation.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
 
         __block int saved = 0;
         __block double t_first = 0, t_last = 0;
-        BOOL ok = eyetoy_start(argc > 3 ? atoi(argv[3]) : 30, argc > 2 ? atoi(argv[2]) : 0, argc > 4 && atoi(argv[4]), ^(NSData *jpeg) {
+        BOOL ok = eyetoy_start(argc > 3 ? atoi(argv[3]) : 30, argc > 2 ? atoi(argv[2]) : 0, ^(NSData *jpeg) {
             if (saved >= want) return;
             t_last = CFAbsoluteTimeGetCurrent();
             if (!saved) t_first = t_last;

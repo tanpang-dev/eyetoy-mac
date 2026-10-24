@@ -10,7 +10,7 @@ typedef struct {
 } EyeToyStats;
 
 // Opens interface 0, selects the iso alt setting, initialises the sensor and starts streaming.
-BOOL eyetoy_start(int fps, int freq, BOOL qvga, EyeToyFrameHandler handler);
+BOOL eyetoy_start(int fps, int freq, EyeToyFrameHandler handler);
 // Stops the camera, lets in-flight requests drain (never aborts) and closes the interface.
 void eyetoy_stop(void);
 BOOL eyetoy_running(void);

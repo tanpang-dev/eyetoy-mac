@@ -8,7 +8,6 @@ enum { SEN_UNKNOWN, SEN_OV7610, SEN_OV7620, SEN_OV76BE, SEN_OV7640, SEN_OV7670 }
 int cam_err;
 static int cache[256];
 static int sensor = SEN_UNKNOWN;
-static int is_7648;
 
 // like gspca's usb_err: after the first failure every access becomes a no-op
 static void reg_w(int idx, int val) {
@@ -133,7 +132,7 @@ static const char *detect_7xx0(void) {
     case 0:
         hi = i2c_r(0x0a), lo = i2c_r(0x0b);
         if (hi != 0x76) return sensor = SEN_OV7620, "OV7620";
-        if (lo == 0x40 || lo == 0x45 || lo == 0x48) return sensor = SEN_OV7640, is_7648 = lo == 0x48, is_7648 ? "OV7648" : "OV7645";
+        if (lo == 0x40 || lo == 0x45 || lo == 0x48) return sensor = SEN_OV7640, lo == 0x48 ? "OV7648" : "OV7645";
         return "unsupported OV76xx";
     }
     return "unknown";
@@ -176,18 +175,16 @@ static const unsigned char fr_7640[][4] = {
     {15, 0x04, 0xff, 1}, {10, 0x04, 0x1f, 1}, {5, 0x04, 0x1b, 1},
 };
 
-// 640x480, or 320x240 (qvga, OV7640/7648 only; what the PS2 uses)
-void cam_start(int fps, int qvga) {
-    qvga = qvga && sensor == SEN_OV7640;
-    const int w = qvga ? 320 : 640, hgt = qvga ? 240 : 480;
+// 640x480
+void cam_start(int fps) {
+    const int w = 640, hgt = 480;
     int clockdiv = 0, hs, he, vs;
     cam_log("start: bridge mode");
     WRITE_REGS(mode_init_519, reg_w);
     if (sensor == SEN_OV7640) reg_w_mask(0x20, 0x10, 0x10);
     reg_w(0x10, w >> 4);
     reg_w(0x11, hgt >> 3);
-    reg_w(0x12, qvga && is_7648); // gspca "Fix 320x240 on ov519 + ov7648"
-    for (int r = 0x13; r <= 0x16; r++) reg_w(r, 0);
+    for (int r = 0x12; r <= 0x16; r++) reg_w(r, 0);
     reg_w(0x25, 0x03);
     reg_w(0x26, 0x00);
     if (sensor == SEN_OV7640) {
@@ -197,14 +194,10 @@ void cam_start(int fps, int qvga) {
         reg_w(0xa4, fr_7640[i][1]);
         reg_w(0x23, fr_7640[i][2]);
         clockdiv = fr_7640[i][3];
-        // Undocumented: sensor clock divider, fps ~ 120/n (found by register sweep, see sweep.log).
-        // gspca's 4 = 12 MHz, half the sensor's rated 24 MHz. 2 gives QVGA 60 fps like the PS2;
-        // VGA at 2 starves the bridge, 3 gives VGA 20 fps.
-        reg_w(0x59, qvga ? 2 : 3);
     }
 
-    cam_log("start: sensor window %dx%d", w, hgt);
-    i2c_w_mask(0x14, qvga ? 0x20 : 0x00, 0x20);
+    cam_log("start: sensor window");
+    i2c_w_mask(0x14, 0x00, 0x20);
     switch (sensor) {
     case SEN_OV7610:
         hs = 0x38, he = 0x3a, vs = 0x05;
@@ -223,18 +216,18 @@ void cam_start(int fps, int qvga) {
         break;
     default:
         hs = 0x1a, he = 0x1a, vs = 0x03;
-        i2c_w_mask(0x28, qvga ? 0x00 : 0x20, 0x20);
-        i2c_w_mask(0x2d, qvga ? 0x40 : 0x00, 0x40); // qvga: removes vertical shaking
-        i2c_w_mask(0x67, qvga ? 0xf0 : 0x90, 0xf0);
-        i2c_w_mask(0x74, qvga ? 0x20 : 0x00, 0x20); // qvga: higher auto gain
+        i2c_w_mask(0x28, 0x20, 0x20);
+        i2c_w_mask(0x2d, 0x00, 0x40);
+        i2c_w_mask(0x67, 0x90, 0xf0);
+        i2c_w_mask(0x74, 0x00, 0x20);
         i2c_w_mask(0x12, 0x04, 0x04);
         break;
     }
     i2c_w(0x11, clockdiv);
     i2c_w(0x17, hs);
-    i2c_w(0x18, he + (w >> (qvga ? 1 : 2)));
+    i2c_w(0x18, he + (w >> 2));
     i2c_w(0x19, vs);
-    i2c_w(0x1a, vs + (hgt >> (qvga ? 0 : 1)));
+    i2c_w(0x1a, vs + (hgt >> 1));
 
     cam_log("start: restart stream");
     reg_w(0x50, 0x40);
@@ -267,12 +260,4 @@ void cam_set_controls(int brightness, int saturation, int freq) {
 // calibration knob: raw sensor register write (masked)
 void cam_i2c_set(int reg, int val, int mask) {
     i2c_w_mask(reg, val, mask);
-}
-
-void cam_reg_set(int reg, int val, int mask) {
-    reg_w_mask(reg, val, mask);
-}
-
-int cam_reg_get(int reg) {
-    return reg_r(reg, 1);
 }

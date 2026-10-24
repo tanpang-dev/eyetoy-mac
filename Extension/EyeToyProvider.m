@@ -10,16 +10,10 @@
 #import <IOKit/audio/IOAudioTypes.h>
 #import "eyetoy_usb.h"
 
-// fps: what the OV7648 actually delivers with the clock divider in ov519_cam.c.
-// maxFps: what we advertise. AVFoundation's default preset skips formats below 30 fps,
-// so VGA claims 20-30 to stay the default for apps that don't pick a format.
-typedef struct { int width, height, fps, maxFps; BOOL qvga; } EyeToyMode;
-static const EyeToyMode kModes[] = {
-	{640, 480, 20, 30, NO},
-	{320, 240, 60, 60, YES}, // what the PS2 uses
-};
-#define kModeCount (sizeof kModes / sizeof kModes[0])
-#define kSensorFps 30  // register setting for the fastest sensor timing (see ov519_cam.c)
+#define kWidth 640
+#define kHeight 480
+#define kFrameRate 15  // what the OV7648 actually delivers at 640x480
+#define kSensorFps 30  // register setting that yields kFrameRate (see ov519_cam.c)
 #define kPowerLineFreq 0
 
 @class EyeToyStreamSource;
@@ -30,15 +24,17 @@ static const EyeToyMode kModes[] = {
 {
 	EyeToyStreamSource *_streamSource;
 	uint32_t _streamingCounter;
-	CMFormatDescriptionRef _videoDescriptions[kModeCount];
-	CVPixelBufferPoolRef _bufferPools[kModeCount];
+	CMFormatDescriptionRef _videoDescription;
+	CVPixelBufferPoolRef _bufferPool;
 	NSDictionary *_bufferAuxAttributes;
 }
 
 - (instancetype)initWithLocalizedName:(NSString *)localizedName;
 
 @property(nonatomic, readonly) CMIOExtensionDevice *device;
-@property(nonatomic) NSUInteger activeMode;
+@property(nonatomic, strong) __attribute__((NSObject)) CMFormatDescriptionRef videoDescription;
+@property(nonatomic, strong) __attribute__((NSObject)) CVPixelBufferPoolRef bufferPool;
+@property(nonatomic, strong) NSDictionary *bufferAuxAttributes;
 
 - (void)startStreaming;
 - (void)stopStreaming;
@@ -51,10 +47,10 @@ static const EyeToyMode kModes[] = {
 @interface EyeToyStreamSource : NSObject<CMIOExtensionStreamSource>
 {
 	__unsafe_unretained CMIOExtensionDevice *_device;
-	NSArray<CMIOExtensionStreamFormat *> *_streamFormats;
+	CMIOExtensionStreamFormat *_streamFormat;
 }
 
-- (instancetype)initWithLocalizedName:(NSString *)localizedName streamID:(NSUUID *)streamID streamFormats:(NSArray<CMIOExtensionStreamFormat *> *)streamFormats device:(CMIOExtensionDevice *)device;
+- (instancetype)initWithLocalizedName:(NSString *)localizedName streamID:(NSUUID *)streamID streamFormat:(CMIOExtensionStreamFormat *)streamFormat device:(CMIOExtensionDevice *)device;
 
 @property(nonatomic, readonly) CMIOExtensionStream *stream;
 
@@ -72,30 +68,32 @@ static const EyeToyMode kModes[] = {
 		// fixed IDs so apps remember the camera across launches
 		NSUUID *deviceID = [[NSUUID alloc] initWithUUIDString:@"FBA32132-3540-429A-AC90-2051D073D819"];
 		_device = [[CMIOExtensionDevice alloc] initWithLocalizedName:localizedName deviceID:deviceID legacyDeviceID:nil source:self];
-		_bufferAuxAttributes = @{(id)kCVPixelBufferPoolAllocationThresholdKey : @(5)};
 
-		NSMutableArray<CMIOExtensionStreamFormat *> *formats = [NSMutableArray array];
-		for (NSUInteger i = 0; i < kModeCount; i++) {
-			EyeToyMode m = kModes[i];
-			(void)CMVideoFormatDescriptionCreate(kCFAllocatorDefault, kCVPixelFormatType_32BGRA, m.width, m.height, NULL, &_videoDescriptions[i]);
-			NSDictionary *pixelBufferAttributes = @{ (id)kCVPixelBufferWidthKey : @(m.width),
-													 (id)kCVPixelBufferHeightKey : @(m.height),
-													 (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+		CMVideoDimensions dims = {.width = kWidth, .height = kHeight};
+		(void)CMVideoFormatDescriptionCreate(kCFAllocatorDefault, kCVPixelFormatType_32BGRA, dims.width, dims.height, NULL, &_videoDescription);
+		if (_videoDescription) {
+			NSDictionary *pixelBufferAttributes = @{ (id)kCVPixelBufferWidthKey : @(dims.width),
+													 (id)kCVPixelBufferHeightKey : @(dims.height),
+													 (id)kCVPixelBufferPixelFormatTypeKey : @(CMFormatDescriptionGetMediaSubType(_videoDescription)),
 													 (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
 													};
-			(void)CVPixelBufferPoolCreate(kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)pixelBufferAttributes, &_bufferPools[i]);
-			if (!_videoDescriptions[i] || !_bufferPools[i]) {
-				@throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"Failed to create video format" userInfo:nil];
-			}
-			[formats addObject:[[CMIOExtensionStreamFormat alloc] initWithFormatDescription:_videoDescriptions[i] maxFrameDuration:CMTimeMake(1, m.fps) minFrameDuration:CMTimeMake(1, m.maxFps) validFrameDurations:nil]];
+			(void)CVPixelBufferPoolCreate(kCFAllocatorDefault, NULL, (__bridge CFDictionaryRef)pixelBufferAttributes, &_bufferPool);
 		}
 
-		NSUUID *videoID = [[NSUUID alloc] initWithUUIDString:@"3A863877-22E7-478C-A1AC-22DEF1707AF3"];
-		_streamSource = [[EyeToyStreamSource alloc] initWithLocalizedName:@"EyeToy.Video" streamID:videoID streamFormats:formats device:_device];
+		CMIOExtensionStreamFormat *videoStreamFormat = nil;
+		if (_bufferPool) {
+			videoStreamFormat = [[CMIOExtensionStreamFormat alloc] initWithFormatDescription:_videoDescription maxFrameDuration:CMTimeMake(1, kFrameRate) minFrameDuration:CMTimeMake(1, kFrameRate) validFrameDurations:nil];
+			_bufferAuxAttributes = @{(id)kCVPixelBufferPoolAllocationThresholdKey : @(5)};
+		}
 
-		NSError *error = nil;
-		if (![_device addStream:_streamSource.stream error:&error]) {
-			@throw [NSException exceptionWithName:NSInternalInconsistencyException reason:[NSString stringWithFormat:@"Failed to add stream: %@", error.localizedDescription] userInfo:nil];
+		if (videoStreamFormat) {
+			NSUUID *videoID = [[NSUUID alloc] initWithUUIDString:@"3A863877-22E7-478C-A1AC-22DEF1707AF3"];
+			_streamSource = [[EyeToyStreamSource alloc] initWithLocalizedName:@"EyeToy.Video" streamID:videoID streamFormat:videoStreamFormat device:_device];
+
+			NSError *error = nil;
+			if (![_device addStream:_streamSource.stream error:&error]) {
+				@throw [NSException exceptionWithName:NSInternalInconsistencyException reason:[NSString stringWithFormat:@"Failed to add stream: %@", error.localizedDescription] userInfo:nil];
+			}
 		}
 	}
 
@@ -125,12 +123,8 @@ static const EyeToyMode kModes[] = {
 	return YES;
 }
 
-- (void)sendJPEG:(NSData *)jpeg mode:(NSUInteger)mode
+- (void)sendJPEG:(NSData *)jpeg
 {
-	if (mode != _activeMode) {
-		return; // stale frame from before a format switch
-	}
-	EyeToyMode m = kModes[mode];
 	CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)jpeg, NULL);
 	CGImageRef image = src ? CGImageSourceCreateImageAtIndex(src, 0, NULL) : NULL;
 	if (src) CFRelease(src);
@@ -140,7 +134,7 @@ static const EyeToyMode kModes[] = {
 	}
 
 	CVPixelBufferRef pixelBuffer = NULL;
-	OSStatus err = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, _bufferPools[mode], (__bridge CFDictionaryRef)_bufferAuxAttributes, &pixelBuffer);
+	OSStatus err = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, self.bufferPool, (__bridge CFDictionaryRef)self.bufferAuxAttributes, &pixelBuffer);
 	if (err || !pixelBuffer) {
 		os_log_error(OS_LOG_DEFAULT, "eyetoy: out of pixel buffers %d", err);
 		CGImageRelease(image);
@@ -149,18 +143,18 @@ static const EyeToyMode kModes[] = {
 
 	CVPixelBufferLockBaseAddress(pixelBuffer, 0);
 	CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-	CGContextRef ctx = CGBitmapContextCreate(CVPixelBufferGetBaseAddress(pixelBuffer), m.width, m.height, 8,
-		CVPixelBufferGetBytesPerRow(pixelBuffer), cs, (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
-	CGContextDrawImage(ctx, CGRectMake(0, 0, m.width, m.height), image);
+	CGContextRef ctx = CGBitmapContextCreate(CVPixelBufferGetBaseAddress(pixelBuffer), kWidth, kHeight, 8,
+		CVPixelBufferGetBytesPerRow(pixelBuffer), cs, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+	CGContextDrawImage(ctx, CGRectMake(0, 0, kWidth, kHeight), image);
 	CGContextRelease(ctx);
 	CGColorSpaceRelease(cs);
 	CGImageRelease(image);
 	CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
 
 	CMSampleBufferRef sbuf = NULL;
-	CMSampleTimingInfo timingInfo = {.duration = CMTimeMake(1, m.fps), .decodeTimeStamp = kCMTimeInvalid};
+	CMSampleTimingInfo timingInfo = {.duration = CMTimeMake(1, kFrameRate), .decodeTimeStamp = kCMTimeInvalid};
 	timingInfo.presentationTimeStamp = CMClockGetTime(CMClockGetHostTimeClock());
-	err = CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, true, NULL, NULL, _videoDescriptions[mode], &timingInfo, &sbuf);
+	err = CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, true, NULL, NULL, self.videoDescription, &timingInfo, &sbuf);
 	CFRelease(pixelBuffer);
 	if (!err) {
 		[_streamSource.stream sendSampleBuffer:sbuf discontinuity:CMIOExtensionStreamDiscontinuityFlagNone hostTimeInNanoseconds:(uint64_t)(CMTimeGetSeconds(timingInfo.presentationTimeStamp) * NSEC_PER_SEC)];
@@ -168,33 +162,15 @@ static const EyeToyMode kModes[] = {
 	}
 }
 
-- (void)startCamera
-{
-	NSUInteger mode = _activeMode;
-	__weak EyeToyDeviceSource *weakSelf = self;
-	if (!eyetoy_start(kSensorFps, kPowerLineFreq, kModes[mode].qvga, ^(NSData *jpeg) { [weakSelf sendJPEG:jpeg mode:mode]; })) {
-		os_log_error(OS_LOG_DEFAULT, "eyetoy: failed to start (not plugged in?)");
-	}
-}
-
-- (void)setActiveMode:(NSUInteger)activeMode
-{
-	if (activeMode >= kModeCount || activeMode == _activeMode) {
-		return;
-	}
-	_activeMode = activeMode;
-	if (_streamingCounter > 0) {
-		eyetoy_stop();
-		[self startCamera];
-	}
-}
-
 - (void)startStreaming
 {
-	if (_streamingCounter++ > 0) {
+	if (!_bufferPool || _streamingCounter++ > 0) {
 		return;
 	}
-	[self startCamera];
+	__weak EyeToyDeviceSource *weakSelf = self;
+	if (!eyetoy_start(kSensorFps, kPowerLineFreq, ^(NSData *jpeg) { [weakSelf sendJPEG:jpeg]; })) {
+		os_log_error(OS_LOG_DEFAULT, "eyetoy: failed to start (not plugged in?)");
+	}
 }
 
 - (void)stopStreaming
@@ -215,12 +191,12 @@ static const EyeToyMode kModes[] = {
 
 @implementation EyeToyStreamSource
 
-- (instancetype)initWithLocalizedName:(NSString *)localizedName streamID:(NSUUID *)streamID streamFormats:(NSArray<CMIOExtensionStreamFormat *> *)streamFormats device:(CMIOExtensionDevice *)device
+- (instancetype)initWithLocalizedName:(NSString *)localizedName streamID:(NSUUID *)streamID streamFormat:(CMIOExtensionStreamFormat *)streamFormat device:(CMIOExtensionDevice *)device
 {
 	self = [super init];
 	if (self) {
 		_device = device;
-		_streamFormats = streamFormats;
+		_streamFormat = streamFormat;
 		_stream = [[CMIOExtensionStream alloc] initWithLocalizedName:localizedName streamID:streamID direction:CMIOExtensionStreamDirectionSource clockType:CMIOExtensionStreamClockTypeHostTime source:self];
 	}
 	return self;
@@ -228,21 +204,19 @@ static const EyeToyMode kModes[] = {
 
 - (NSArray<CMIOExtensionStreamFormat *> *)formats
 {
-	return _streamFormats;
+	return [NSArray arrayWithObjects:_streamFormat, nil];
 }
 
 - (NSUInteger)activeFormatIndex
 {
-	return ((EyeToyDeviceSource *)_device.source).activeMode;
+	return 0;
 }
 
 - (void)setActiveFormatIndex:(NSUInteger)activeFormatIndex
 {
-	if (activeFormatIndex >= kModeCount) {
+	if (activeFormatIndex >= 1) {
 		os_log_error(OS_LOG_DEFAULT, "Invalid index");
-		return;
 	}
-	((EyeToyDeviceSource *)_device.source).activeMode = activeFormatIndex;
 }
 
 - (NSSet<CMIOExtensionProperty> *)availableProperties
@@ -257,7 +231,7 @@ static const EyeToyMode kModes[] = {
 		streamProperties.activeFormatIndex = @(self.activeFormatIndex);
 	}
 	if ([properties containsObject:CMIOExtensionPropertyStreamFrameDuration]) {
-		CMTime frameDuration = CMTimeMake(1, kModes[self.activeFormatIndex].fps);
+		CMTime frameDuration = CMTimeMake(1, kFrameRate);
 		NSDictionary *frameDurationDictionary = CFBridgingRelease(CMTimeCopyAsDictionary(frameDuration, NULL));
 		streamProperties.frameDuration = frameDurationDictionary;
 	}

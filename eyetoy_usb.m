@@ -112,12 +112,12 @@ static void submit(NSMutableData *buf, IOUSBHostIsochronousTransaction *tx, int 
     next_frame += TX_PER_REQ;
 }
 
-// EYETOY_I2C / EYETOY_REG="reg:val:mask,..." (hex): calibration knobs for sensor / bridge experiments
-static void apply_tweaks(const char *env, void (*set)(int, int, int)) {
-    const char *tw = getenv(env);
+// EYETOY_I2C="reg:val:mask,..." (hex): calibration knob for sensor experiments
+static void apply_i2c_tweaks(void) {
+    const char *tw = getenv("EYETOY_I2C");
     for (NSString *t in tw ? [@(tw) componentsSeparatedByString:@","] : @[]) {
         unsigned r = 0, v = 0, m = 0xff;
-        if (sscanf(t.UTF8String, "%x:%x:%x", &r, &v, &m) >= 2) { cam_log("%s %02x=%02x/%02x", env, r, v, m); set(r, v, m); }
+        if (sscanf(t.UTF8String, "%x:%x:%x", &r, &v, &m) >= 2) { cam_log("i2c tweak %02x=%02x/%02x", r, v, m); cam_i2c_set(r, v, m); }
     }
 }
 
@@ -127,7 +127,7 @@ static void close_interface(void) {
     itf = nil;
 }
 
-BOOL eyetoy_start(int fps, int freq, BOOL qvga, EyeToyFrameHandler handler) {
+BOOL eyetoy_start(int fps, int freq, EyeToyFrameHandler handler) {
     if (itf) return NO;
     io_service_t svc = find_interface0();
     if (!svc) { cam_log("EyeToy interface 0 not found"); return NO; }
@@ -157,14 +157,9 @@ BOOL eyetoy_start(int fps, int freq, BOOL qvga, EyeToyFrameHandler handler) {
     on_frame = handler;
     frame = [NSMutableData dataWithCapacity:640 * 480 * 2];
     in_frame = 0, skip = SKIP_FRAMES, stop_req = 0, st = (EyeToyStats){0};
-    cam_start(fps, qvga);
+    cam_start(fps);
     cam_set_controls(127, 127, freq);
-    apply_tweaks("EYETOY_I2C", cam_i2c_set);
-    if (getenv("EYETOY_REG")) {
-        apply_tweaks("EYETOY_REG", cam_reg_set);
-        cam_reg_set(0x51, 0x0f, 0xff); // restart so bridge clock changes latch
-        cam_reg_set(0x51, 0x00, 0xff);
-    }
+    apply_i2c_tweaks();
     if (cam_err) { close_interface(); return NO; }
 
     dispatch_sync(queue, ^{
